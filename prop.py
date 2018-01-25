@@ -2,7 +2,10 @@ import time
 import sys
 import os
 import cPickle
-from shinken.objects.host import Host
+try:
+    from shinken.objects.host import Host
+except ImportError:
+    Host = None
 
 
 def print_title(title):
@@ -13,7 +16,8 @@ def print_title(title):
 
 
 def print_timed_entry(title, N, ref_time):
-    print "\t%-25s:   (%d loops) => %.2f seconds" % (title, N, time.time() - ref_time)
+    elapsed_time = time.time() - ref_time
+    print "\t%-25s:   (%d loops) => %.2f seconds    (%10d/s)" % (title, N, elapsed_time, N / elapsed_time)
 
 
 def share_memory_mapping():
@@ -40,7 +44,11 @@ def share_memory_mapping():
         to_open = f.fileno()
         buf = mmap.mmap(to_open, bloc_size, mmap.MAP_SHARED, mmap.PROT_WRITE)
         bufs.append(buf)
-        i = ctypes.c_int.from_buffer(buf)
+        try:
+            i = ctypes.c_int.from_buffer(buf)
+        except TypeError:  # in pypy 5
+            print "PYPY detected, skip this test"
+            return
         
         # Set a value
         i.value = 10
@@ -168,6 +176,60 @@ class OOO(object):
     '''
 
 
+
+from cffi import FFI
+ffi = FFI()
+
+
+ffi.cdef('''
+typedef struct FOO FOO;
+struct FOO {
+   int prop1;
+   int prop2;
+   int prop3;
+   int prop4;
+   int prop5;
+   int prop6;
+   int prop7;
+   int prop8;
+   int prop9;
+   int prop10;
+};
+void FOO_set_prop1(FOO*, int);
+
+''')
+
+#ffi.set_source("_example",
+#r"""
+#    void FOO_set_prop1(FOO* self, int v){
+#        self->prop1 = v;
+#    }
+#""")
+
+Clib = ffi.verify(
+               r'''
+typedef struct FOO FOO;
+struct FOO {
+   int prop1;
+   int prop2;
+   int prop3;
+   int prop4;
+   int prop5;
+   int prop6;
+   int prop7;
+   int prop8;
+   int prop9;
+   int prop10;
+};
+void FOO_set_prop1(FOO* self, int v){
+   self->prop1 = v;
+};
+               '''
+               )
+#ffi.compile()
+print "CLib", Clib
+
+
 def bench_host_creation_with_attr():
     ################## Becnh host creation with setattr/getattr/hasattr
     print_title("Bench host creation with attr")
@@ -193,6 +255,10 @@ def bench_host_creation_with_attr():
             #print type(f)
         print "Pos:%d %.2f" % (pos, time.time() - t0)
     '''
+    
+    if Host is None:
+        print "Shinken is not installed, skip this test"
+        return
     
     # Hack fill default, by setting values directly to class
     cls = Host
@@ -264,33 +330,60 @@ def bench_host_creation_with_attr():
         lst.append(h)
     t0 = time.time()
     buf = cPickle.dumps(lst, 2)
-    print "TIME picle %.2f   len=%d" % (time.time() - t0, len(buf))
+    print "TIME pickle %.2f   len=%d" % (time.time() - t0, len(buf))
     print "Phases: create=%.2f default=%.2f pythonize=%.2f clean=%.2f" % (p1, p2, p3, p4)
 
 
 def bench_getattr_hasattr():
     ################## Becnh host creation with setattr/getattr/hasattr
-    print_title("Becnh host creation with setattr/getattr/hasattr")
+    print_title("Bench host creation with setattr/getattr/hasattr")
     
-    h = Host({'host_name': 'blablacar', 'address': '127.0.0', 'active_checks_enabled': '1'})
-    
-    ######## Bench Get/Hasattr
     N = 1000000
+    
+    print "############ CFFI"
+    FOO_set_prop1 = Clib.FOO_set_prop1
+    struct_obj = ffi.new("FOO*")
+    
+    class CFFISurClass(object):
+        def __init__(self):
+            self.struct_obj = ffi.new("FOO*")
+    
+    cffi_sur_class = CFFISurClass()
+    
+    t0 = time.time()
+    for i in xrange(N):
+        struct_obj.prop1 = 33
+    print_timed_entry('CFFI: struct.prop1', N, t0)
+
+
+    t0 = time.time()
+    for i in xrange(N):
+        cffi_sur_class.struct_obj.prop1 = 33
+    print_timed_entry('CFFI: CLASS->struct.x', N, t0)
+
+
+    t0 = time.time()
+    for i in xrange(N):
+        FOO_set_prop1(struct_obj, 33)
+    print_timed_entry('CFFI: f(struct*, value)', N, t0)
+
+    
+    o = OOO()
+    
+    print "############ Getattr & hasattr"
     t0 = time.time()
     for i in xrange(N):
         try:
-            getattr(h, 'blabla')
+            getattr(o, 'blabla')
         except AttributeError, exp:
             pass
     print_timed_entry('Get+try', N, t0)
-    # print "Get+try : %.2f" % (time.time() - t0)
+
     t0 = time.time()
     for i in xrange(N):
-        hasattr(h, 'blabla')
+        hasattr(o, 'blabla')
     print_timed_entry('hasattr', N, t0)
-    # print "Hasattr : %.2f" % (time.time() - t0)
-    
-    o = OOO()
+
     
     ####### Integers
     x = o._x
@@ -310,21 +403,21 @@ def bench_getattr_hasattr():
         v = o.x
         assert (v == 1)
     print_timed_entry('@Property access', N, t0)
-    # print "\t@Property access: FOR N: %d => %.2f" % (N, time.time() - t0)
+
     
     t0 = time.time()
     for i in rr():
         v = o._x
         assert (v == 1)
     print_timed_entry('Direct access _x', N, t0)
-    # print "\tDirect access _x:     FOR N: %d => %.2f" % (N, time.time() - t0)
+
     
     t0 = time.time()
     for i in rr():
         v = o.__dict__['_x']
         assert (v == 1)
     print_timed_entry('Direct __dict__ access', N, t0)
-    # print "\tDirect __dict__ access :   FOR N: %d => %.2f" % (N, time.time() - t0)
+
     
     code = compile('v = o._x', '<string>', 'exec')
     t0 = time.time()
@@ -332,7 +425,14 @@ def bench_getattr_hasattr():
         exec code in locals()
         assert (v == 1)
     print_timed_entry('Compile+Exec', N, t0)
-    # print "\tCompile+Exec :   FOR N: %d => %.2f" % (N, time.time() - t0)
+
+
+    t0 = time.time()
+    for i in rr():
+        v = getattr(o, '_x')
+        assert (v == 1)
+    print_timed_entry('Getattr _x', N, t0)
+
     
     print "############ Python Booleans with bitmask"
     o._b1 = True
@@ -364,14 +464,14 @@ def bench_getattr_hasattr():
         v = (b & mask) != 0
         assert (v is True)
     print_timed_entry('Raw', N, t0)
-    # print "\tRaw:     FOR N: %d => %.2f" % (N, time.time() - t0)
+
     
     t0 = time.time()
     for i in rr():
         v = o.__dict__['_b1']
         assert (v is True)
     print_timed_entry('__dict__', N, t0)
-    # print "\tDict :   FOR N: %d => %.2f" % (N, time.time() - t0)
+
     
     print "############## ctypes booleans"
     import ctypes
