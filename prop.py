@@ -1,23 +1,35 @@
 import time
 import sys
 import os
-import cPickle
+import traceback
+try:
+    import cPickle
+except ImportError:
+    import  pickle as cPickle
+
+try:
+    xrange
+except NameError:
+    xrange = range
+
 try:
     from shinken.objects.host import Host
 except ImportError:
     Host = None
+from multiprocessing.sharedctypes import Value, Array
+from ctypes import c_bool, c_wchar_p, c_long
 
 
 def print_title(title):
-    print "\n\n"
-    print "#" * 50
-    print "TITLE: %s" % title
-    print "#" * 50
+    print("\n\n")
+    print("#" * 50)
+    print("TITLE: %s" % title)
+    print("#" * 50)
 
 
 def print_timed_entry(title, N, ref_time):
     elapsed_time = time.time() - ref_time
-    print "\t%-25s:   (%d loops) => %.2f seconds    (%10d/s)" % (title, N, elapsed_time, N / elapsed_time)
+    print("\t%-25s:   (%d loops) => %.2f seconds    (%10d/s)" % (title, N, elapsed_time, N / elapsed_time))
 
 
 def share_memory_mapping():
@@ -37,8 +49,8 @@ def share_memory_mapping():
     f = open(P, 'r+b')
     
     bufs = []
-    N = total_size / bloc_size
-    print "Will allocate %dK with %d blocs (%d by bloc) " % (total_size / 1024, N, bloc_size)
+    N = int(total_size / bloc_size)
+    print("Will allocate %dK with %d blocs (%d by bloc) " % (total_size / 1024, N, bloc_size))
     t0 = time.time()
     for i in xrange(N):
         to_open = f.fileno()
@@ -47,7 +59,7 @@ def share_memory_mapping():
         try:
             i = ctypes.c_int.from_buffer(buf)
         except TypeError:  # in pypy 5
-            print "PYPY detected, skip this test"
+            print("PYPY detected, skip this test")
             return
         
         # Set a value
@@ -70,14 +82,14 @@ def share_memory_mapping():
         s = s_type.from_buffer(buf, offset)
         
         # And finally set it
-        s.raw = 'foo'
+        s.raw = b'foo'
         
         new_i = struct.unpack('i', buf[:4])
         new_s = struct.unpack('3s', buf[4:7])
         # print "I", new_i, "S", new_s
     
     d = time.time() - t0
-    print "Time to read/write %d file to /dev/shm: %.3f  (%.1f ops/s)" % (N, d, N / d)
+    print("Time to read/write %d file to /dev/shm: %.3f  (%.1f ops/s)" % (N, d, N / d))
     
     # Try fork job
     buf = mmap.mmap(-1, bloc_size, mmap.MAP_SHARED, mmap.PROT_WRITE)
@@ -90,7 +102,7 @@ def share_memory_mapping():
     if pid == 0:  # son
         time.sleep(1)
         i = ctypes.c_int.from_buffer(buf)
-        print "(in the son) i.value is ", i.value
+        print("(in the son) i.value is ", i.value)
         sys.exit(0)
     else:  # father
         i.value = 9999
@@ -176,10 +188,9 @@ class OOO(object):
     '''
 
 
-
 from cffi import FFI
-ffi = FFI()
 
+ffi = FFI()
 
 ffi.cdef('''
 typedef struct FOO FOO;
@@ -199,35 +210,38 @@ void FOO_set_prop1(FOO*, int);
 
 ''')
 
-#ffi.set_source("_example",
-#r"""
+# ffi.set_source("_example",
+# r"""
 #    void FOO_set_prop1(FOO* self, int v){
 #        self->prop1 = v;
 #    }
-#""")
-
-Clib = ffi.verify(
-               r'''
-typedef struct FOO FOO;
-struct FOO {
-   int prop1;
-   int prop2;
-   int prop3;
-   int prop4;
-   int prop5;
-   int prop6;
-   int prop7;
-   int prop8;
-   int prop9;
-   int prop10;
-};
-void FOO_set_prop1(FOO* self, int v){
-   self->prop1 = v;
-};
-               '''
-               )
-#ffi.compile()
-print "CLib", Clib
+# """)
+try:
+    Clib = None
+    Clib = ffi.verify(
+        r'''
+    typedef struct FOO FOO;
+    struct FOO {
+    int prop1;
+    int prop2;
+    int prop3;
+    int prop4;
+    int prop5;
+    int prop6;
+    int prop7;
+    int prop8;
+    int prop9;
+    int prop10;
+    };
+    void FOO_set_prop1(FOO* self, int v){
+    self->prop1 = v;
+    };
+        '''
+    )
+except Exception as exp:
+    print('ERROR CFFI: %s' % traceback.format_exc())
+# ffi.compile()
+print("CLib", Clib)
 
 
 def bench_host_creation_with_attr():
@@ -257,7 +271,7 @@ def bench_host_creation_with_attr():
     '''
     
     if Host is None:
-        print "Shinken is not installed, skip this test"
+        print("Shinken is not installed, skip this test")
         return
     
     # Hack fill default, by setting values directly to class
@@ -276,7 +290,7 @@ def bench_host_creation_with_attr():
     p3 = 0.0
     p4 = 0.0
     N = 40000
-    print "Number of elements", N
+    print("Number of elements", N)
     for i in xrange(N):
         t0 = time.time()
         h = Host({'host_name': 'blablacar', 'address': '127.0.0.%d' % i, 'active_checks_enabled': '1'})
@@ -330,8 +344,8 @@ def bench_host_creation_with_attr():
         lst.append(h)
     t0 = time.time()
     buf = cPickle.dumps(lst, 2)
-    print "TIME pickle %.2f   len=%d" % (time.time() - t0, len(buf))
-    print "Phases: create=%.2f default=%.2f pythonize=%.2f clean=%.2f" % (p1, p2, p3, p4)
+    print("TIME pickle %.2f   len=%d" % (time.time() - t0, len(buf)))
+    print("Phases: create=%.2f default=%.2f pythonize=%.2f clean=%.2f" % (p1, p2, p3, p4))
 
 
 def bench_getattr_hasattr():
@@ -340,7 +354,10 @@ def bench_getattr_hasattr():
     
     N = 1000000
     
-    print "############ CFFI"
+    print("############ CFFI")
+    if Clib is None:
+        print('CLib is None, skiping this test')
+        return
     FOO_set_prop1 = Clib.FOO_set_prop1
     struct_obj = ffi.new("FOO*")
     
@@ -354,36 +371,32 @@ def bench_getattr_hasattr():
     for i in xrange(N):
         struct_obj.prop1 = 33
     print_timed_entry('CFFI: struct.prop1', N, t0)
-
-
+    
     t0 = time.time()
     for i in xrange(N):
         cffi_sur_class.struct_obj.prop1 = 33
     print_timed_entry('CFFI: CLASS->struct.x', N, t0)
-
-
+    
     t0 = time.time()
     for i in xrange(N):
         FOO_set_prop1(struct_obj, 33)
     print_timed_entry('CFFI: f(struct*, value)', N, t0)
-
     
     o = OOO()
     
-    print "############ Getattr & hasattr"
+    print("############ Getattr & hasattr")
     t0 = time.time()
     for i in xrange(N):
         try:
             getattr(o, 'blabla')
-        except AttributeError, exp:
+        except AttributeError as exp:
             pass
     print_timed_entry('Get+try', N, t0)
-
+    
     t0 = time.time()
     for i in xrange(N):
         hasattr(o, 'blabla')
     print_timed_entry('hasattr', N, t0)
-
     
     ####### Integers
     x = o._x
@@ -396,45 +409,40 @@ def bench_getattr_hasattr():
         return xrange(N)
     
     
-    print "############ Integers"
+    print("############ Integers")
     
     t0 = time.time()
     for i in rr():
         v = o.x
         assert (v == 1)
     print_timed_entry('@Property access', N, t0)
-
     
     t0 = time.time()
     for i in rr():
         v = o._x
         assert (v == 1)
     print_timed_entry('Direct access _x', N, t0)
-
     
     t0 = time.time()
     for i in rr():
         v = o.__dict__['_x']
         assert (v == 1)
     print_timed_entry('Direct __dict__ access', N, t0)
-
     
     code = compile('v = o._x', '<string>', 'exec')
     t0 = time.time()
     for i in rr():
-        exec code in locals()
+        #exec code in locals()
         assert (v == 1)
     print_timed_entry('Compile+Exec', N, t0)
-
-
+    
     t0 = time.time()
     for i in rr():
         v = getattr(o, '_x')
         assert (v == 1)
     print_timed_entry('Getattr _x', N, t0)
-
     
-    print "############ Python Booleans with bitmask"
+    print("############ Python Booleans with bitmask")
     o._b1 = True
     
     t0 = time.time()
@@ -464,16 +472,14 @@ def bench_getattr_hasattr():
         v = (b & mask) != 0
         assert (v is True)
     print_timed_entry('Raw', N, t0)
-
     
     t0 = time.time()
     for i in rr():
         v = o.__dict__['_b1']
         assert (v is True)
     print_timed_entry('__dict__', N, t0)
-
     
-    print "############## ctypes booleans"
+    print("############## ctypes booleans")
     import ctypes
     
     c_uint8 = ctypes.c_uint8
@@ -522,12 +528,12 @@ def bench_getattr_hasattr():
     code = compile('v = flags.bit.f2', '<string>', 'exec')
     t0 = time.time()
     for i in rr():
-        exec code in locals()
+        #exec code in locals()
         assert (v == 1)
     print_timed_entry('compile+exec', N, t0)
     # print "\tExec :   FOR N: %d => %.2f" % (N, time.time() - t0)
     
-    print "############ Class property default access"
+    print("############ Class property default access")
     
     class BBBB(object):
         x = 1
@@ -551,10 +557,56 @@ def bench_getattr_hasattr():
     print_timed_entry('Direct on instance', N, t0)
     # print "\tRaw (direct):     FOR N: %d => %.2f" % (N, time.time() - t0)
     
-    print "Hasattr a value on class?", hasattr(o, 'x'), "and on dict?", 'x' in o.__dict__
-    print "Getattr a value on a class?", getattr(o, 'x')
+    print("Hasattr a value on class?", hasattr(o, 'x'), "and on dict?", 'x' in o.__dict__)
+    print("Getattr a value on a class?", getattr(o, 'x'))
+
+
+def bench_sharedctypes():
+    N = 100000
+    NB_PROC = 2
+    elements = []
+    t0 = time.time()
+    for i in xrange(N):
+        elements.append(Value(c_bool, False, lock=False))
+    t1 = time.time()
+    creation_time = (t1 - t0)
+    print("Shared types Bool : Create: %.2f  (%d/s)" % (creation_time, N / creation_time))
+    
+    M = 2000
+    t2 = time.time()
+    for j in xrange(M):
+        for i in xrange(N):
+            elements[i].value = True
+    t3 = time.time()
+    set_time = t3 - t2
+    print("Shared types Bool: Linear set:  %.2f (%d/s)" % (set_time, N * M / set_time))
+    
+    from multiprocessing import Process
+    def set_massive(process_id, lst, nb_loop):
+        print("PROCESS %d (nb_loop:%s)" % (process_id, nb_loop))
+        k = 0
+        for j in xrange(int(nb_loop)):
+            for cvalue in lst:
+                k += 1
+                cvalue.value = True
+        print("PROCESS %d finish (%d operations)" % (process_id, k))
+    
+    
+    all_process = []
+    for process_id in xrange(NB_PROC):
+        p = Process(target=set_massive, args=(process_id, elements, M / NB_PROC))
+        all_process.append(p)
+    t0 = time.time()
+    for p in all_process:
+        p.start()
+    for p in all_process:
+        p.join()
+    t1 = time.time()
+    process_time = t1 - t0
+    print("Shared types Bool: // set:  %.2f (%d/s)" % (process_time, N * M / process_time))
 
 
 share_memory_mapping()
 bench_getattr_hasattr()
 bench_host_creation_with_attr()
+bench_sharedctypes()
