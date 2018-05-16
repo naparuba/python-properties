@@ -2,10 +2,11 @@ import time
 import sys
 import os
 import traceback
+
 try:
     import cPickle
 except ImportError:
-    import  pickle as cPickle
+    import pickle as cPickle
 
 try:
     xrange
@@ -22,14 +23,14 @@ from ctypes import c_bool, c_wchar_p, c_long
 
 def print_title(title):
     print("\n\n")
-    print("#" * 50)
+    print("#" * 60)
     print("TITLE: %s" % title)
-    print("#" * 50)
+    print("#" * 60)
 
 
 def print_timed_entry(title, N, ref_time):
     elapsed_time = time.time() - ref_time
-    print("\t%-25s:   (%d loops) => %.2f seconds    (%10d/s)" % (title, N, elapsed_time, N / elapsed_time))
+    print("\t%-25s:   (%d loops) => %.3f seconds    (%10.4f M/s)" % (title, N, elapsed_time, (N / elapsed_time) / 1000000.0))
 
 
 def share_memory_mapping():
@@ -110,10 +111,30 @@ def share_memory_mapping():
     time.sleep(2)
 
 
+def add_metaclass(metaclass):
+    """Class decorator for creating a class with a metaclass."""
+    
+    
+    def wrapper(cls):
+        orig_vars = cls.__dict__.copy()
+        slots = orig_vars.get('__slots__')
+        if slots is not None:
+            if isinstance(slots, str):
+                slots = [slots]
+            for slots_var in slots:
+                orig_vars.pop(slots_var)
+        orig_vars.pop('__dict__', None)
+        orig_vars.pop('__weakref__', None)
+        return metaclass(cls.__name__, cls.__bases__, orig_vars)
+    
+    
+    return wrapper
+
+
 class AutoProperties(type):
     def __new__(cls, name, bases, dct):
         # First map integer properties
-        for (prop_raw, v) in dct['int_properties'].iteritems():
+        for (prop_raw, v) in dct['int_properties'].items():
             prop = '_' + prop_raw
             
             
@@ -145,8 +166,9 @@ class AutoProperties(type):
         return type.__new__(cls, name, bases, dct)
 
 
+@add_metaclass(AutoProperties)
 class OOO(object):
-    __metaclass__ = AutoProperties
+    # __metaclass__ = AutoProperties
     int_properties = {'x': 1, 'y': 1}
     bool_properties = {'b1': True, 'b2': True}
     
@@ -276,7 +298,7 @@ def bench_host_creation_with_attr():
     
     # Hack fill default, by setting values directly to class
     cls = Host
-    for prop, entry in cls.properties.iteritems():
+    for prop, entry in cls.properties.items():
         if entry.has_default:
             v = entry.pythonize(entry.default)
             setattr(cls, prop, v)
@@ -314,7 +336,7 @@ def bench_host_creation_with_attr():
         nb_delete = 0
         nb_fields = 0
         properties = Host.properties
-        for (k, e) in properties.iteritems():
+        for (k, e) in properties.items():
             nb_fields += 1
             if not hasattr(h, k):
                 continue
@@ -324,7 +346,7 @@ def bench_host_creation_with_attr():
                     # pass
                     nb_delete += 1
         
-        for (k, e) in Host.running_properties.iteritems():
+        for (k, e) in Host.running_properties.items():
             nb_fields += 1
             if not hasattr(h, k):
                 continue
@@ -432,7 +454,7 @@ def bench_getattr_hasattr():
     code = compile('v = o._x', '<string>', 'exec')
     t0 = time.time()
     for i in rr():
-        #exec code in locals()
+        exec (code, locals())
         assert (v == 1)
     print_timed_entry('Compile+Exec', N, t0)
     
@@ -528,7 +550,7 @@ def bench_getattr_hasattr():
     code = compile('v = flags.bit.f2', '<string>', 'exec')
     t0 = time.time()
     for i in rr():
-        #exec code in locals()
+        exec (code, locals())
         assert (v == 1)
     print_timed_entry('compile+exec', N, t0)
     # print "\tExec :   FOR N: %d => %.2f" % (N, time.time() - t0)
@@ -572,7 +594,7 @@ def bench_sharedctypes():
     creation_time = (t1 - t0)
     print("Shared types Bool : Create: %.2f  (%d/s)" % (creation_time, N / creation_time))
     
-    M = 2000
+    M = 200
     t2 = time.time()
     for j in xrange(M):
         for i in xrange(N):
